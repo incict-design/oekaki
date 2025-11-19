@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>シンプルお絵描きアプリ</title>
+<style>
+  body {
+    margin: 0;
+    background: #eee;
+    font-family: "Hiragino Kaku Gothic ProN", "Meiryo", sans-serif;
+  }
+  .toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    background: #222;
+    color: #fff;
+    padding: 10px;
+    align-items: center;
+  }
+  .btn {
+    background: #444;
+    color: #fff;
+    border: none;
+    padding: 8px 10px;
+    border-radius: 6px;
+    cursor: pointer;
+  }
+  .btn.primary {
+    background: #ffcc00;
+    color: #000;
+  }
+  label {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  canvas {
+    display: block;
+    width: 100%;
+    height: calc(100vh - 60px);
+    background: #fff;
+    touch-action: none;
+  }
+</style>
+</head>
+<body>
+<div class="toolbar">
+  <label>色 <input id="color" type="color" value="#ffcc00"></label>
+  <label>太さ <input id="size" type="range" min="1" max="80" value="10"></label>
+  <button id="eraser" class="btn">消しゴム</button>
+  <button id="clear" class="btn">クリア</button>
+  <button id="undo" class="btn">取り消し</button>
+  <button id="save" class="btn primary">保存</button>
+</div>
+
+<canvas id="canvas"></canvas>
+
+<script>
+const canvas = document.getElementById("canvas");
+const ctx = canvas.getContext("2d");
+const color = document.getElementById("color");
+const size = document.getElementById("size");
+const eraser = document.getElementById("eraser");
+const clear = document.getElementById("clear");
+const undo = document.getElementById("undo");
+const save = document.getElementById("save");
+
+let drawing = false;
+let isEraser = false;
+let lastX = 0, lastY = 0;
+let history = [];
+
+function resizeCanvas() {
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight - document.querySelector(".toolbar").offsetHeight;
+}
+resizeCanvas();
+window.addEventListener("resize", resizeCanvas);
+
+function startDraw(e) {
+  drawing = true;
+  const {x, y} = getPos(e);
+  lastX = x;
+  lastY = y;
+  ctx.beginPath();
+  ctx.moveTo(x, y);
+  saveHistory();
+}
+
+function draw(e) {
+  if (!drawing) return;
+  const {x, y} = getPos(e);
+  ctx.lineWidth = size.value;
+  ctx.lineCap = "round";
+  ctx.strokeStyle = isEraser ? "#fff" : color.value;
+  ctx.lineTo(x, y);
+  ctx.stroke();
+  lastX = x;
+  lastY = y;
+}
+
+function endDraw() {
+  drawing = false;
+  ctx.closePath();
+}
+
+function getPos(e) {
+  const rect = canvas.getBoundingClientRect();
+  const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+  const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+  return { x: clientX - rect.left, y: clientY - rect.top };
+}
+
+function saveHistory() {
+  if (history.length > 30) history.shift();
+  history.push(canvas.toDataURL());
+}
+
+eraser.addEventListener("click", () => {
+  isEraser = !isEraser;
+  eraser.textContent = isEraser ? "描画モード" : "消しゴム";
+  eraser.classList.toggle("primary", isEraser);
+});
+
+clear.addEventListener("click", () => {
+  // ✅ 即座に描画をクリアする
+  saveHistory();
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+});
+
+undo.addEventListener("click", () => {
+  if (history.length > 0) {
+    const img = new Image();
+    img.src = history.pop();
+    img.onload = () => {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(img, 0, 0);
+    };
+  }
+});
+
+save.addEventListener("click", () => {
+  const link = document.createElement("a");
+  link.download = "drawing.png";
+  link.href = canvas.toDataURL();
+  link.click();
+});
+
+canvas.addEventListener("mousedown", startDraw);
+canvas.addEventListener("mousemove", draw);
+canvas.addEventListener("mouseup", endDraw);
+canvas.addEventListener("mouseleave", endDraw);
+canvas.addEventListener("touchstart", startDraw, { passive: false });
+canvas.addEventListener("touchmove", draw, { passive: false });
+canvas.addEventListener("touchend", endDraw);
+</script>
+</body>
+</html>
