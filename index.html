@@ -1,160 +1,313 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>シンプルお絵描きアプリ</title>
-<style>
-  body {
-    margin: 0;
-    background: #eee;
-    font-family: "Hiragino Kaku Gothic ProN", "Meiryo", sans-serif;
-  }
-  .toolbar {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-    background: #222;
-    color: #fff;
-    padding: 10px;
-    align-items: center;
-  }
-  .btn {
-    background: #444;
-    color: #fff;
-    border: none;
-    padding: 8px 10px;
-    border-radius: 6px;
-    cursor: pointer;
-  }
-  .btn.primary {
-    background: #ffcc00;
-    color: #000;
-  }
-  label {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-  }
-  canvas {
-    display: block;
-    width: 100%;
-    height: calc(100vh - 60px);
-    background: #fff;
-    touch-action: none;
-  }
-</style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>手書きメモ</title>
+    <style>
+        body {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            font-family: sans-serif;
+            margin: 20px;
+            background-color: #f4f4f4;
+        }
+        #controls {
+            margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px;
+            background: #fff;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+        #memoCanvas {
+            border: 2px solid #333;
+            background-color: white; /* 消しゴム機能のための背景色 */
+            cursor: crosshair;
+        }
+        button {
+            padding: 4px 10px;
+            cursor: pointer;
+            border: none;
+            border-radius: 4px;
+            background-color: #007bff;
+            color: white;
+            transition: background-color 0.3s;
+        }
+        button:hover:not(:disabled) {
+            background-color: #0056b3;
+        }
+        button:disabled {
+            background-color: #007bff;
+            cursor: not-allowed;
+        }
+        .active-tool {
+            background-color: #28a745; /* アクティブなツールボタンの色 */
+        }
+        .active-tool:hover {
+            background-color: #1e7e34;
+        }
+        label {
+            font-weight: bold;
+            color: #333;
+        }
+    </style>
 </head>
 <body>
-<div class="toolbar">
-  <label>色 <input id="color" type="color" value="#ffcc00"></label>
-  <label>太さ <input id="size" type="range" min="1" max="80" value="10"></label>
-  <button id="eraser" class="btn">消しゴム</button>
-  <button id="clear" class="btn">クリア</button>
-  <button id="undo" class="btn">取り消し</button>
-  <button id="save" class="btn primary">保存</button>
-</div>
 
-<canvas id="canvas"></canvas>
+    
+    <div id="controls">
+  
+        <input type="color" id="colorPicker" value="#000000">
+        
+     
+        <input type="range" id="thicknessSlider" min="1" max="10" value="3">
+        
+        <button id="penButton" class="active-tool">ペン</button>
+        <button id="eraserButton">消しゴム</button> 
+        
+        <button id="undoButton" disabled>戻る</button>
+        
+        <button id="clearButton">クリア</button>
+    </div>
 
-<script>
-const canvas = document.getElementById("canvas");
-const ctx = canvas.getContext("2d");
-const color = document.getElementById("color");
-const size = document.getElementById("size");
-const eraser = document.getElementById("eraser");
-const clear = document.getElementById("clear");
-const undo = document.getElementById("undo");
-const save = document.getElementById("save");
+    <canvas id="memoCanvas" width="800" height="500"></canvas>
 
-let drawing = false;
-let isEraser = false;
-let lastX = 0, lastY = 0;
-let history = [];
+    <script>
+        // --- 変数の定義 ---
+        const canvas = document.getElementById('memoCanvas');
+        const ctx = canvas.getContext('2d');
+        const clearButton = document.getElementById('clearButton');
+        const undoButton = document.getElementById('undoButton');
+        const colorPicker = document.getElementById('colorPicker');
+        const thicknessSlider = document.getElementById('thicknessSlider');
+        const penButton = document.getElementById('penButton');
+        const eraserButton = document.getElementById('eraserButton');
+        
+        // localStorageのキー
+        const storageKey = 'handwrittenMemoData';
+        const historyKey = 'drawingHistory';
+        
+        let isDrawing = false;
+        let lastX = 0;
+        let lastY = 0;
 
-function resizeCanvas() {
-  canvas.width = window.innerWidth;
-  canvas.height = window.innerHeight - document.querySelector(".toolbar").offsetHeight;
-}
-resizeCanvas();
-window.addEventListener("resize", resizeCanvas);
+        let drawingHistory = []; // 描画履歴を保存するスタック（Data URLの配列）
+        const MAX_HISTORY = 10;  // 保持する履歴の最大数
 
-function startDraw(e) {
-  drawing = true;
-  const {x, y} = getPos(e);
-  lastX = x;
-  lastY = y;
-  ctx.beginPath();
-  ctx.moveTo(x, y);
-  saveHistory();
-}
+        let currentTool = 'pen'; // 'pen'または'eraser'
+        
+        // --- 制御関数 ---
+        
+        // Undoボタンの有効/無効を切り替える
+        function updateUndoButtonState() {
+            // 履歴が1つ以上ある場合（クリアな状態を除く）にボタンを有効にする
+            undoButton.disabled = drawingHistory.length <= 0;
+        }
 
-function draw(e) {
-  if (!drawing) return;
-  const {x, y} = getPos(e);
-  ctx.lineWidth = size.value;
-  ctx.lineCap = "round";
-  ctx.strokeStyle = isEraser ? "#fff" : color.value;
-  ctx.lineTo(x, y);
-  ctx.stroke();
-  lastX = x;
-  lastY = y;
-}
+        // 手書きの状態と履歴をローカルストレージに保存
+        function saveMemo() {
+            // 1. キャンバスの内容をData URLとして取得
+            const dataURL = canvas.toDataURL();
 
-function endDraw() {
-  drawing = false;
-  ctx.closePath();
-}
+            // 2. 履歴スタックを更新
+            // 新しい状態をスタックに追加（最大数を超えたら古いものから削除）
+            drawingHistory.push(dataURL);
+            if (drawingHistory.length > MAX_HISTORY) {
+                drawingHistory.shift(); 
+            }
+            
+            // 3. ローカルストレージに最新のキャンバス状態と履歴を保存
+            localStorage.setItem(storageKey, dataURL);
+            localStorage.setItem(historyKey, JSON.stringify(drawingHistory));
 
-function getPos(e) {
-  const rect = canvas.getBoundingClientRect();
-  const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-  const clientY = e.touches ? e.touches[0].clientY : e.clientY;
-  return { x: clientX - rect.left, y: clientY - rect.top };
-}
+            updateUndoButtonState(); // Undoボタンの状態を更新
+        }
 
-function saveHistory() {
-  if (history.length > 30) history.shift();
-  history.push(canvas.toDataURL());
-}
+        // ローカルストレージから保存された画像データと履歴をロード
+        function loadMemo() {
+            // 1. 履歴スタックのロード
+            const historyJSON = localStorage.getItem(historyKey);
+            if (historyJSON) {
+                drawingHistory = JSON.parse(historyJSON);
+            }
+            
+            // 2. 最新のキャンバス状態のロード
+            const dataURL = localStorage.getItem(storageKey);
+            if (dataURL) {
+                const img = new Image();
+                img.onload = function() {
+                    // ロードした画像をキャンバスに描画
+                    ctx.drawImage(img, 0, 0);
+                };
+                img.src = dataURL;
+            }
+            
+            updateUndoButtonState(); // Undoボタンの状態を更新
+        }
+        
+        // 一つ前の描画状態に戻す
+        function undoDrawing() {
+            if (drawingHistory.length > 0) {
+                // 1. 現在の最新の状態をスタックから削除
+                drawingHistory.pop();
+                
+                // 2. 復元するData URLを取得
+                const previousDataURL = drawingHistory.length > 0 
+                                      ? drawingHistory[drawingHistory.length - 1]
+                                      : null;
 
-eraser.addEventListener("click", () => {
-  isEraser = !isEraser;
-  eraser.textContent = isEraser ? "描画モード" : "消しゴム";
-  eraser.classList.toggle("primary", isEraser);
-});
+                // 3. キャンバスをクリアし、前の状態を描画
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                
+                if (previousDataURL) {
+                    const img = new Image();
+                    img.onload = function() {
+                        ctx.drawImage(img, 0, 0);
+                        
+                        // 4. ローカルストレージの最新状態も更新
+                        localStorage.setItem(storageKey, previousDataURL);
+                        localStorage.setItem(historyKey, JSON.stringify(drawingHistory));
+                        updateUndoButtonState();
+                    };
+                    img.src = previousDataURL;
+                } else {
+                    // 履歴が空になった場合、ストレージも削除
+                    localStorage.removeItem(storageKey);
+                    localStorage.removeItem(historyKey);
+                    updateUndoButtonState();
+                }
+            }
+        }
 
-clear.addEventListener("click", () => {
-  // ✅ 即座に描画をクリアする
-  saveHistory();
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-});
+        // 描画設定を更新（ツール切り替え時や設定変更時）
+        function setupContext() {
+            ctx.lineJoin = 'round';
+            ctx.lineCap = 'round';
+            ctx.lineWidth = thicknessSlider.value;
+            
+            if (currentTool === 'eraser') {
+                // 消しゴムモード：描画色を背景色（白）にする
+                ctx.strokeStyle = '#FFFFFF';
+            } else {
+                // ペンモード：カラーピッカーで選択された色にする
+                ctx.strokeStyle = colorPicker.value;
+            }
+        }
+        
+        // ツール（ペン/消しゴム）を切り替える
+        function activateTool(tool) {
+            currentTool = tool;
+            setupContext(); // 描画設定を更新
 
-undo.addEventListener("click", () => {
-  if (history.length > 0) {
-    const img = new Image();
-    img.src = history.pop();
-    img.onload = () => {
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      ctx.drawImage(img, 0, 0);
-    };
-  }
-});
+            // ボタンの見た目を更新
+            if (tool === 'pen') {
+                penButton.classList.add('active-tool');
+                eraserButton.classList.remove('active-tool');
+                canvas.style.cursor = 'crosshair';
+            } else {
+                eraserButton.classList.add('active-tool');
+                penButton.classList.remove('active-tool');
+                // 消しゴム用のカーソルを設定（ここでは標準のカーソルを使用）
+                canvas.style.cursor = 'cell'; 
+            }
+        }
 
-save.addEventListener("click", () => {
-  const link = document.createElement("a");
-  link.download = "drawing.png";
-  link.href = canvas.toDataURL();
-  link.click();
-});
+        // マウス/タッチ座標の取得
+        function getCoordinates(e) {
+            const rect = canvas.getBoundingClientRect();
+            let x, y;
 
-canvas.addEventListener("mousedown", startDraw);
-canvas.addEventListener("mousemove", draw);
-canvas.addEventListener("mouseup", endDraw);
-canvas.addEventListener("mouseleave", endDraw);
-canvas.addEventListener("touchstart", startDraw, { passive: false });
-canvas.addEventListener("touchmove", draw, { passive: false });
-canvas.addEventListener("touchend", endDraw);
-</script>
+            if (e.touches && e.touches.length > 0) {
+                // タッチイベント
+                x = e.touches[0].clientX - rect.left;
+                y = e.touches[0].clientY - rect.top;
+            } else {
+                // マウスイベント
+                x = e.clientX - rect.left;
+                y = e.clientY - rect.top;
+            }
+            return [x, y];
+        }
+
+        // --- 描画処理 ---
+
+        // 描画開始
+        function startDrawing(e) {
+            isDrawing = true;
+            setupContext(); // 現在のツール設定を適用
+            [lastX, lastY] = getCoordinates(e); 
+        }
+
+        // 描画実行
+        function draw(e) {
+            if (!isDrawing) return;
+            e.preventDefault();
+            
+            const [currentX, currentY] = getCoordinates(e);
+
+            // 線の描画
+            ctx.beginPath();
+            ctx.moveTo(lastX, lastY);
+            ctx.lineTo(currentX, currentY);
+            ctx.stroke();
+
+            lastX = currentX;
+            lastY = currentY;
+        }
+
+        // 描画終了
+        function stopDrawing() {
+            if (isDrawing) {
+                isDrawing = false;
+                // 描画が完了したら内容を履歴に保存
+                saveMemo(); 
+            }
+        }
+
+        // --- イベントリスナー ---
+
+        // マウスイベント
+        canvas.addEventListener('mousedown', startDrawing);
+        canvas.addEventListener('mousemove', draw);
+        canvas.addEventListener('mouseup', stopDrawing);
+        canvas.addEventListener('mouseout', stopDrawing);
+
+        // タッチイベント (モバイル対応)
+        canvas.addEventListener('touchstart', startDrawing);
+        canvas.addEventListener('touchmove', draw);
+        canvas.addEventListener('touchend', stopDrawing);
+        canvas.addEventListener('touchcancel', stopDrawing);
+
+        // ツールボタン
+        penButton.addEventListener('click', () => activateTool('pen'));
+        eraserButton.addEventListener('click', () => activateTool('eraser'));
+
+        // Undoボタン
+        undoButton.addEventListener('click', undoDrawing);
+
+        // 消去ボタン
+        clearButton.addEventListener('click', () => {
+            if (confirm('メモの内容を全て消去しますか？')) {
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                localStorage.removeItem(storageKey);
+                localStorage.removeItem(historyKey);
+                drawingHistory = []; // 履歴スタックをリセット
+                updateUndoButtonState();
+            }
+        });
+
+        // 色や太さの変更時
+        colorPicker.addEventListener('input', () => activateTool('pen')); // 色を変えたらペンツールに切り替える
+        thicknessSlider.addEventListener('input', setupContext);
+
+        // --- アプリケーション起動 ---
+        
+        setupContext(); // 初期設定を適用
+        loadMemo();     // 過去のメモと履歴をロード
+    </script>
 </body>
 </html>
