@@ -26,6 +26,8 @@
         #memoCanvas {
             border: 2px solid #333;
             background-color: white; /* 消しゴム機能のための背景色 */
+            /* 1本指での操作時は描画を優先するため、タッチアクションを無効化 */
+            touch-action: none; 
             cursor: crosshair;
         }
         button {
@@ -60,10 +62,10 @@
 
     
     <div id="controls">
-  
+ 
         <input type="color" id="colorPicker" value="#000000">
         
-     
+      
         <input type="range" id="thicknessSlider" min="1" max="10" value="3">
         
         <button id="penButton" class="active-tool">ペン</button>
@@ -223,6 +225,7 @@
 
             if (e.touches && e.touches.length > 0) {
                 // タッチイベント
+                // 描画には最初の指の座標を使用
                 x = e.touches[0].clientX - rect.left;
                 y = e.touches[0].clientY - rect.top;
             } else {
@@ -237,6 +240,13 @@
 
         // 描画開始
         function startDrawing(e) {
+            // タッチイベントの場合、指が1本か確認
+            if (e.touches && e.touches.length !== 1) {
+                // 2本以上の指の場合、描画を無視し、デフォルトの動作（スクロール）を許可
+                isDrawing = false;
+                return;
+            }
+
             isDrawing = true;
             setupContext(); // 現在のツール設定を適用
             [lastX, lastY] = getCoordinates(e); 
@@ -244,8 +254,13 @@
 
         // 描画実行
         function draw(e) {
+            // isDrawingがfalse（2本指以上で開始された場合を含む）なら描画しない
             if (!isDrawing) return;
-            e.preventDefault();
+            
+            // 1本指の場合のみ、デフォルトの動作（スクロール）を抑制して描画を優先
+            // 2本指の場合、startDrawingでisDrawing=falseになっているため、ここはスキップされ、
+            // デフォルトの動作（スクロール）が実行されます。
+            e.preventDefault(); 
             
             const [currentX, currentY] = getCoordinates(e);
 
@@ -260,11 +275,18 @@
         }
 
         // 描画終了
-        function stopDrawing() {
+        function stopDrawing(e) {
+            // isDrawingがtrueの場合にのみ履歴保存を行う
             if (isDrawing) {
                 isDrawing = false;
                 // 描画が完了したら内容を履歴に保存
                 saveMemo(); 
+            }
+            
+            // 複数指でタッチ操作が終了した場合（指を離した場合）でも、
+            // 次の操作のためにisDrawingを確実にリセット
+            if (e.touches && e.touches.length === 0) {
+                isDrawing = false;
             }
         }
 
@@ -277,11 +299,14 @@
         canvas.addEventListener('mouseout', stopDrawing);
 
         // タッチイベント (モバイル対応)
+        // 描画を優先したいので、1本指でのキャンバス操作時にブラウザのデフォルト操作（スクロール）を無効化する
+        // 2本指以上の場合は、startDrawingで描画がスキップされ、
+        // draw/touchmoveでe.preventDefault()が呼ばれないため、スクロールが許可されます。
         canvas.addEventListener('touchstart', startDrawing);
         canvas.addEventListener('touchmove', draw);
         canvas.addEventListener('touchend', stopDrawing);
         canvas.addEventListener('touchcancel', stopDrawing);
-
+        
         // ツールボタン
         penButton.addEventListener('click', () => activateTool('pen'));
         eraserButton.addEventListener('click', () => activateTool('eraser'));
